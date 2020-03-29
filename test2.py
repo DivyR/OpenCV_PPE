@@ -51,18 +51,6 @@ minNeighbors = {
     "fistCascade": 75,
 }  # 92
 
-# list of colors
-colors = [
-    (255, 0, 0),
-    (0, 255, 0),
-    (0, 0, 255),
-    (255, 255, 0),
-    (0, 255, 255),
-    (255, 0, 255),
-    (255, 255, 255),
-    (120, 50, 200),
-]
-
 colours = {
     "palm": (255, 0, 0),
     "eyePair": (0, 255, 0),
@@ -96,6 +84,7 @@ def display_cv_image(image):
     resized = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
     cv2.imshow("Image", resized)
 
+
 # Read the image
 image = cv2.imread(imagePath)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -114,21 +103,18 @@ drawRectangles = True
 concern = False
 
 # create a new offset tracker
-offset = [0,0]
+offset = [0, 0]
 
-for i in range(len(checkReady)):
-    # part to check
-    part = checkReady[i]
+for part in checkReady:
     # use part as a key to casc dictionary
     cascade = cascs[part]
     # apply the cascade and generate all the 'rectangles'
     rects = cascade.detectMultiScale(
-        checkGrayIm, scaleFactor=1.05, minNeighbors=minNeighbors[part]
+        checkGrayIm, scaleFactor=1.05, minNeighbors=minNeighbors[part], minSize=(60, 60)
     )
 
     # error check to make sure only 1 of the part is found
-    N = len(rects)
-    if N != 1:
+    if len(rects) != 1:
         # update concern
         concern = part
         # temporary
@@ -140,27 +126,129 @@ for i in range(len(checkReady)):
             # offset the rectangles by the right amount
             x += offset[0]
             y += offset[1]
-
-            cv2.rectangle(checkImage, (x, y), (x + w, y + h), colors[i], 2)
+            cv2.rectangle(checkImage, (x, y), (x + w, y + h), colours[part], 2)
     # crop down the image
     (x, y, w, h) = rects[0]
 
     # update crop offset
-    offset[0] += x 
+    offset[0] += x
     offset[1] += y
 
     checkGrayIm = checkGrayIm[y : y + h, x : x + w].copy()
     # store the found rectangles
-    rectsList[part] = rects
+    rectsList[part] = rects[0]
 
 # Indicate Readiness
 if not concern:
     print("Completed Readiness Check Successfully!")
 else:
-    print("User in not Ready!")
+    print("User is not Ready!")
+
+# Hand Detection with Glove Detection
+# the assumption is the rect for fullbody exist from readiness check
+checkHand = ["palm"]  # conside checking fists
+(x, y, w, h) = rectsList["fullBody"]
+handIm = image[y : y + h, x : x + w].copy()
+concern = False
+offset = [0, 0]
+# update crop offset since we need to adjust for it when drawing rects
+offset[0] += x
+offset[1] += y
+for part in checkHand:
+    # obtain cascade and detect the part
+    cascade = cascs[part]
+    rects = cascade.detectMultiScale(
+        handIm, scaleFactor=1.05, minNeighbors=minNeighbors[part], minSize=(60, 60)
+    )
+    if len(rects) != 2:
+        print("Detected {} {}.".format(len(rects), part))
+        concern = True
+        pass
+    if drawRectangles:
+        for (x, y, w, h) in rects:
+            # offset the rectangles by the right amount
+            x += offset[0]
+            y += offset[1]
+            cv2.rectangle(checkImage, (x, y), (x + w, y + h), colours[part], 2)
+    # store the found hands
+    rectsList[part] = rects
+    missingGlove = 0
+    for hand in rects:
+        (x, y, w, h) = hand
+        singleHandIm = hsv[y : y + h, x : x + w].copy()
+        # glove detection
+        lowerRange = np.array([177, 0, 0])
+        upperRange = np.array([212, 255, 255])
+        gloveMask = cv2.inRange(singleHandIm, lowerRange, upperRange)
+        (mean_hue, a, b, c) = cv2.mean(gloveMask)
+        if mean_hue < 50:  # Value TBD
+            missingGlove += 1
+    print("Missing {} Gloves".format(missingGlove))
+    break
+if not concern:
+    print("2 Hands are Detected!")
+
+else:
+    print("2 Hands not Detected!")
+
+
+# check for Gown
+(x, y, w, h) = rectsList["fullBody"]
+upperIm = hsv[y : y + h, x : x + w].copy()
+lowerRange = np.array([15, 0, 0])
+upperRange = np.array([36, 255, 255])
+gownMask = cv2.inRange(upperIm, lowerRange, upperRange)
+(mean_hue, a, b, c) = cv2.mean(gloveMask)
+if mean_hue < 70:  # Value TBD
+    print("Missing gown!")
+else:
+    print("Gown is present!")
+
+
+# Face Detection + Mask
+# use existing upper body to obtain face and mouth identification
+(x, y, w, h) = rectsList["upperBody"]
+checkMask = gray[y : y + h, x : x + w].copy()
+obtain = ["faceCascade", "mouth"]
+offset = [0, 0]
+offset[0] += x
+offset[1] += y
+for part in obtain:
+    cascade = cascs[part]
+    rects = cascade.detectMultiScale(
+        checkMask, scaleFactor=1.05, minNeighbors=minNeighbors[part], minSize=(60, 60)
+    )
+    N = len(rects)
+    if part == "mouth":
+        if N == 1:
+            print("Mouth found!")
+        elif N == 0:
+            print("No mouth found!")
+        else:
+            print("{} Mouths found".format(N))
+    elif part == "faceCasade":
+        if N != 1:
+            print("Amount of faces is not 1! Cannot proceed to check for a mouth.")
+            break
+    if drawRectangles:
+        for (x, y, w, h) in rects:
+            # offset the rectangles by the right amount
+            x += offset[0]
+            y += offset[1]
+            cv2.rectangle(checkImage, (x, y), (x + w, y + h), colours[part], 2)
+    # crop down the image
+    (x, y, w, h) = rects[0]
+
+    # update crop offset
+    offset[0] += x
+    offset[1] += y
+
+    checkMask = checkMask[y : y + h, x : x + w].copy()
+    # store the found rectangles
+    rectsList[part] = rects[0]
+
 
 display_cv_image(checkImage)
-
 
 cv2.waitKey(0)
 
