@@ -96,7 +96,6 @@ def display_cv_image(image):
     resized = cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
     cv2.imshow("Image", resized)
 
-
 # Read the image
 image = cv2.imread(imagePath)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -113,6 +112,10 @@ checkGrayIm = cv2.imread(imagePath, cv2.COLOR_BGR2GRAY)
 drawRectangles = True
 # concern will be over written to equal the part to indicate the point of failure
 concern = False
+
+# create a new offset tracker
+offset = [0,0]
+
 for i in range(len(checkReady)):
     # part to check
     part = checkReady[i]
@@ -123,7 +126,7 @@ for i in range(len(checkReady)):
         checkGrayIm, scaleFactor=1.05, minNeighbors=minNeighbors[part]
     )
 
-    # error check for only 1 of the part is found
+    # error check to make sure only 1 of the part is found
     N = len(rects)
     if N != 1:
         # update concern
@@ -134,11 +137,19 @@ for i in range(len(checkReady)):
     # draw rectangles
     elif drawRectangles:
         for (x, y, w, h) in rects:
+            # offset the rectangles by the right amount
+            x += offset[0]
+            y += offset[1]
+
             cv2.rectangle(checkImage, (x, y), (x + w, y + h), colors[i], 2)
     # crop down the image
-    print(rects)
     (x, y, w, h) = rects[0]
-    checkGrayIm = checkGrayIm[x : y + h, x : x + w].copy()
+
+    # update crop offset
+    offset[0] += x 
+    offset[1] += y
+
+    checkGrayIm = checkGrayIm[y : y + h, x : x + w].copy()
     # store the found rectangles
     rectsList[part] = rects
 
